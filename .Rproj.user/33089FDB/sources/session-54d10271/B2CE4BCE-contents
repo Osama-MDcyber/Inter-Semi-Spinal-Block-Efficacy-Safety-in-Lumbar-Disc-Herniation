@@ -1,0 +1,219 @@
+---
+title: "ISSP Block Efficacy Report"
+output: word_document
+author: Osama Ahmed Ibrahim
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+knitr::opts_chunk$set(
+  dpi = 300)
+```
+
+```{r Backgroun_Data_Cleaninng, include=FALSE, results='hide'}
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(finalfit)
+library(gtsummary)
+library(broom)
+library(magrittr)
+library(epiR)
+library(survival)
+library(survminer)
+library(finalfit)
+library(flextable)
+library(here)
+
+# Reading the data from the excel file with skippinng first row as it contains unneeded organization 
+ISP_block_data <- read_excel(path = here("Project-1-data copy.xlsx"), skip = 1)
+
+# Renaming columns to names shorter, representative and more easy to deal with 
+ISP_block_data <- ISP_block_data %>% rename(time_of_peth_post_opt_min = `time of pethidine post operative (min)`,
+                          first_dose_peth_post_opt_mg = `first dose of pethidine post operative (mg)`,
+                          total_peth_post_opt_mg = `total of pethidine post operative (mg)`,
+                          intra_opt_fentanyl_consump_mic = `intra oprative fentanyl consumption (mic)`)
+
+# Removing extra spaces in front and back of the column values 
+ISP_block_data$group <- ISP_block_data$group %>% str_trim()
+
+# Removing text present with values of columns that should only include numeric data 
+ISP_block_data$first_dose_peth_post_opt_mg <- ISP_block_data$first_dose_peth_post_opt_mg %>% str_remove("mg") %>% str_trim()
+ISP_block_data$total_peth_post_opt_mg <- ISP_block_data$total_peth_post_opt_mg %>% str_remove("mg") %>% str_trim()
+ISP_block_data$intra_opt_fentanyl_consump_mic <- ISP_block_data$intra_opt_fentanyl_consump_mic %>% str_remove("mic") %>% str_trim()
+
+# Coding columns to be factors and setting up codes as needed
+ISP_block_data$sex <- factor(ISP_block_data$sex) %>% fct_recode("Female" = "0", "Male" = "1")
+ISP_block_data$group <- factor(ISP_block_data$group) %>% fct_recode(
+  "Control group" = "control group", "ISSP Block group" = "ISSP block"
+)
+
+# Removing extra spaces in front and back of the column values 
+ISP_block_data$group <- ISP_block_data$group %>% str_trim()
+
+# Coding columns to be factors and setting up codes as needed
+
+ISP_block_data <- ISP_block_data %>% mutate(across("patient satisification", ~ fct_recode(as.factor(.x),
+                                                                        "satisfied" = "3",
+                                                                        "fair" = "2", 
+                                                                        "dissatisfied" = "1")))
+
+ISP_block_data$`surgeon satisification` <- ISP_block_data$`surgeon satisification` %>% factor() %>% fct_recode(
+  "very good" = "5",
+  "good" = "4",
+  "fair" = "3",
+  "not bad" = "2",
+  "dissatisfied" = "1"
+)
+
+ISP_block_data <- ISP_block_data %>% mutate(across(c("nausea", "vomiting", "pruritis", "others"), ~ factor(.x)))
+
+# Removing extra spaces in all columns of VAS score and Extracting the important numbers we need as values for the column
+ISP_block_data <- ISP_block_data %>% mutate(across(contains("VAS"), ~ as.numeric(parse_number(trimws(as.character(.x))))))
+
+# Setting a condition with case_when function to unify the time values in time column
+# Detection of wether word minute or hour are present and depending on that we extract the number 
+# number extracted would be either converted to minutes or already in minutes time
+ISP_block_data <- ISP_block_data %>% mutate(time_of_peth_post_opt_min = case_when(
+  str_detect(time_of_peth_post_opt_min, "min") ~ parse_number(time_of_peth_post_opt_min),
+  str_detect(time_of_peth_post_opt_min, "h") ~ parse_number(time_of_peth_post_opt_min) * 60,
+  T ~ 0
+))
+
+# Converting values of columns to be numeric as needed 
+ISP_block_data <- ISP_block_data %>% mutate(across(c("first_dose_peth_post_opt_mg", "total_peth_post_opt_mg", "intra_opt_fentanyl_consump_mic"), 
+                                                   ~as.numeric(.x)))
+```
+
+R version 4.5.1 (2025-06-13) was used to conduct the analysis. Visual Inspection and Shapiro-Wilk test were performed to assess normality of data to determine the appropriate statistical tests. Data not normally distributed was presented by a median and interquartile range, and Mann-Whitney U test was used to compare between groups of data not normally distributed. Categorical data were presenetd with frequencies and an appropriate Chi-squared test or Fisher exact test was used for the comparison. Time to first pethidine administration was evaluated using Kaplan–Meier survival curves and compared between groups with the log‑rank test. P value <0.05 was considered statis- tically significant.
+
+## Results 
+ 44 patients were enrolled in the study. Table 1 represents different patients' demographics.
+
+#### Table 1
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ISP_block_data_Summary_Data <- ISP_block_data %>% select(Age:group) %>% tbl_summary(by = group,
+                                                     label = list(
+                                                       weight ~ "Weight(Kg)",
+                                                     hight ~"Hight",
+                                                     sex ~ "Sex"
+                                                     )) %>% add_p() %>% as_flex_table()
+ISP_block_data_Summary_Data
+```
+
+4 patients in the ISP group required postoperative rescue pethidine compared to 14 patients in control group (P = 0.002). The median (quartiles) of total postoperative rescue pethidine consumption was significantly lower in the ISP group [0 (0–0 mg)] compared to that of the control group [85 (0–100 mg)]; P < 0.003). (Table 2). 
+The median (quartiles) of intraoperative fentanyl consumption in the ISP group [100 (100–100) μg] was significantly lower compared to that of the control group [100 (100–150 μg); P = 0.044].(Table 2)
+Risk ratio for the need of postoperative pethidine in ISSP group compared to control is 0.29(0.11 , 0.73) indicating the significant protective effect. 
+
+#### Table 2
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Making a summary table for hypothesize testing of different important values between intervention and control group
+# Remove Zero Values from the columns as right now you're not testing the need of the medication,
+# Instead you're testing doses on time difference upon those who needed the medication.
+ISP_block_data %>% select(contains("peth"), group, intra_opt_fentanyl_consump_mic) %>% 
+  filter(time_of_peth_post_opt_min != 0, first_dose_peth_post_opt_mg != 0,
+         total_peth_post_opt_mg != 0, intra_opt_fentanyl_consump_mic != 0) %>% 
+  tbl_summary(by = group,
+              type = list(time_of_peth_post_opt_min ~ "continuous",
+                          first_dose_peth_post_opt_mg ~ "continuous",
+                          total_peth_post_opt_mg ~ "continuous",
+                          intra_opt_fentanyl_consump_mic ~ "continuous"
+              ),
+              label = list('need of pethidine post operative'	~ "Needed of Pethidine Post Operative",
+                           time_of_peth_post_opt_min	~ "Time of Pethidine Post Operative (min)",
+                           first_dose_peth_post_opt_mg ~ "First Dose of Pethidine Post Operative (mg)",
+                           total_peth_post_opt_mg ~ "Total of Pethidine Consumed Post Operative (mg)",
+                           intra_opt_fentanyl_consump_mic ~ "Intraoperative Fentanyl Consumption (microgram)")) %>% 
+  add_p() %>% as_flex_table()
+```
+
+
+The ISSP Block group demonstrated lower median pain scores at multiple postoperative time points, with statistically significant differences at 1 hour (3.50 vs 4.00, p=0.025), 8 hours (3.00 vs 4.00, p=0.007), and 12 hours (4.00 vs 5.00, p=0.009) post-surgery. However, after applying Bonferroni correction for multiple comparisons, none of these differences reached statistical significance (all q-values >0.05), suggesting that while the ISSP block showed a trend toward reduced pain in the early-to-mid postoperative period, the evidence was insufficient to confirm a definitive analgesic benefit at individual time points.(Table 3)
+
+#### Table 3
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Making a summary table for comparing VAS scores between the two groups in different time points 
+ISP_block_data %>% select(group, contains("VAS")) %>% 
+  tbl_summary(by = group,
+              type = list(contains("VAS") ~ "continuous")) %>% add_p() %>% 
+  add_q(method = "bonferroni") %>% as_flex_table()
+```
+
+Fig.1 shows visual analogue scale of pain nbetween groups at different time points. 
+
+#### Visual Analogue Scale of Pain between Groups at Different Time Points
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+long_format <- ISP_block_data %>% select(ID, contains("VAS"), -`Pre opr VAS score`, group) %>% pivot_longer(cols = matches("VAS"),
+                                               names_to = "Time",
+                                               values_to = "VAS") %>% 
+  mutate(Time = factor(Time, levels = c("30 min post opt VAS", "1 h post opt VAS", "2h post opt VAS", "4 h post opt VAS",
+                                        "6h post opt VAS", "8h post opt VAS", "12h post opt VAS", "18h post opt VAS",
+                                        "24h post opt VAS", "36h post opt VAS", "48h post opt VAS"),
+                       labels = c("30 min", "1h", "2h", "4h", "6h", "8h", "12h", "18h", "24h", "36h", "48h")))
+
+
+VAS_Summ <- long_format %>% group_by(group, Time) %>% summarise(Median = median(VAS), IQR = IQR(VAS))
+VAS_Visual <- VAS_Summ %>% ggplot(aes(Time, Median, fill = group)) + geom_col(position = position_dodge(width = 0.5)) + 
+  scale_fill_manual(values = c("#023E8A", "#00B4D8")) + theme_minimal()
+VAS_Visual
+
+```
+
+
+Fig. 2 shows the Kaplan–Meier curve for the time till first pethidine administration post operative. The median of time to first rescue pethidine administration was significantly longer in ISSP group (p = 0.0013).
+
+
+#### Kaplan–Meier curve for the time till first pethidine administration post operative
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Replacing the zero values in time column in participants who didn't have the event to
+# the last time of follow-up to construct proper survival function and kaplan meier curve 
+ISP_block_data <- ISP_block_data %>% mutate(time_of_peth_post_opt_min = ifelse(
+  time_of_peth_post_opt_min == 0, 480, time_of_peth_post_opt_min
+))
+survival_object <- Surv(time = ISP_block_data$time_of_peth_post_opt_min, 
+                        ISP_block_data$`need of pethidine post operative`)
+surv_fit <- survfit(survival_object ~ group, data = ISP_block_data)
+
+# Making Kaplan Meier Curve
+ggsurvplot(surv_fit, data = ISP_block_data, conf.int = T, xlab = "Minutes",
+           ylab = "Survival Probability", pval = T, pval.coord = c(210, 0.12))
+```
+
+No significant difference in any of the adverse events or complications was detected in the studied groups.(Table 3)
+
+
+#### Table 3
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ISP_block_data <- ISP_block_data %>% group_by(group) %>% 
+  mutate(
+    Any_ADR = factor(as.integer(nausea == 1 | vomiting == 1 | pruritis == 1),
+                     levels = c(0, 1),
+                     labels = c("No", "Yes"))
+  ) 
+ISP_block_data %>% select(nausea:pruritis, Any_ADR, group) %>% tbl_summary(by = group, 
+                                                                    label = list(
+                                                                      nausea ~ "Nausea",
+                                                                      vomiting ~ "Vomiting",
+                                                                      pruritis ~ "Pruritis",
+                                                                      Any_ADR ~ "Any ADRs"),
+                                                                    type = list(
+                                                                      nausea ~ "dichotomous",
+                                                                      vomiting ~ "dichotomous",
+                                                                      pruritis ~ "dichotomous"
+                                                                    ),
+                                                                    value = list(
+                                                                      nausea ~ 1, 
+                                                                      vomiting ~ 1,
+                                                                      pruritis ~ 1
+                                                                    )) %>% 
+  add_p() %>% as_flex_table()
+```
+
+No significant difference in patient satisfaction between ISSP group and control group p(0.12).(Table 4)
+
+#### Table 4
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ISP_block_data %>% select(group, `patient satisification`) %>% tbl_summary(by = group) %>% add_p() %>% 
+  as_flex_table()
+```
+
